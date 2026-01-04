@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Emergency Call Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="container">
+    <h1>AI-Enhanced Emergency Call Center Assistant</h1>
+    <p class="subtitle">Upload emergency call recordings to analyze and prioritize situations</p>
+
+    <div class="card upload-card">
+        <form method="post" enctype="multipart/form-data">
+            <input type="file" name="audio" multiple required>
+            <button type="submit">Analyze Calls</button>
+        </form>
+    </div>
+
+    {% if results %}
+        {% for result in results %}
+        <h2>Recording: {{ result.filename }}</h2>
+        <div class="grid">
+
+            <div class="card">
+                <h3>Call Transcript</h3>
+                <p>{{ result.transcript }}</p>
+            </div>
+
+            <div class="card">
+                <h3>Detected Emotion</h3>
+                <span class="badge panic">{{ result.emotion }}</span>
+            </div>
+
+            <div class="card">
+                <h3>Extracted Information</h3>
+                <ul>
+                    <li><strong>Emergency Type:</strong> {{ result.entities['Emergency Type'] }}</li>
+                    <li><strong>Location:</strong> {{ result.entities['Location'] }}</li>
+                    <li><strong>Severity:</strong> {{ result.entities['Severity'] }}</li>
+                </ul>
+            </div>
+
+        </div>
+        <hr>
+        {% endfor %}
+    {% endif %}
+</div>
+
+</body>
+</html>
