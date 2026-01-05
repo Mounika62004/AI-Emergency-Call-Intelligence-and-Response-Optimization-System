@@ -1,15 +1,15 @@
-# NLP-based Information Extraction and Geospatial Mapping for Emergency Response
-# Extracts emergency type, location (geospatial mapping), and severity from transcribed text
-# Not yet implemented
 import re
 import spacy
 from sklearn.metrics import f1_score
 
-# Load spaCy model
+
+# =============================
+# LOAD spaCy MODEL
+# =============================
 nlp = spacy.load("en_core_web_sm")
 
 # =============================
-# 1. TEXT CLEANER
+# TEXT CLEANING
 # =============================
 FILLER_WORDS = [
     "um", "uh", "please", "sir", "actually",
@@ -19,108 +19,135 @@ FILLER_WORDS = [
 def clean_text(text):
     text = text.lower()
     for word in FILLER_WORDS:
-        text = re.sub(r"\b" + word + r"\b", "", text)
+     text = re.sub(rf"\b{word}\b", "", text)
     text = re.sub(r"[^a-z\s]", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
 # =============================
-# 2. EMERGENCY CLASSIFIER
+# EMERGENCY CLASSIFICATION
 # =============================
 EMERGENCY_KEYWORDS = {
-    "Medical": ["injured", "unconscious", "heart attack", "bleeding", "dying"],
-    "Fire": ["fire", "smoke", "burning", "gas leak", "explosion"],
-    "Accident": ["accident", "crash", "collision", "hit"],
-    "Crime": ["attack", "robbery", "fight", "threat", "assault"]
+    "Fire": [
+        "fire", "smoke", "burning", "flames",
+        "gas leak", "explosion", "blast",
+        "short circuit", "caught fire"
+    ],
+    "Medical": [
+        "injured", "unconscious", "bleeding",
+        "heart attack", "not breathing",
+        "collapsed", "ambulance"
+    ],
+    "Accident": [
+        "accident", "crash", "collision",
+        "hit", "overturned", "vehicle"
+    ],
+    "Crime": [
+        "robbery", "attack", "assault",
+        "fight", "threat"
+    ]
 }
 
 def classify_emergency(text):
-    for emergency_type, keywords in EMERGENCY_KEYWORDS.items():
+    for emergency, keywords in EMERGENCY_KEYWORDS.items():
         for keyword in keywords:
             if keyword in text:
-                return emergency_type
-
-    # Future enhancement: BERT-based classification
+                return emergency
     return "Unknown"
 
 
-
-
 # =============================
-# 3. URGENCY SCORING
+# SEVERITY DETECTION
 # =============================
-URGENCY_KEYWORDS = {
-    "CRITICAL": ["dying", "unconscious", "not breathing"],
-    "HIGH": ["serious", "badly", "emergency", "immediately"],
-    "MEDIUM": ["help", "injured", "pain"],
-    "LOW": ["minor", "small", "not serious"]
+SEVERITY_KEYWORDS = {
+    "High": [
+        "unconscious", "not breathing",
+        "dying", "serious", "emergency",
+        "panic", "immediately"
+    ],
+    "Medium": [
+        "injured", "help", "pain",
+        "fear", "gas leak"
+    ],
+    "Low": [
+        "minor", "small"
+    ]
 }
 
-def detect_urgency(text):
-    for level, keywords in URGENCY_KEYWORDS.items():
+def detect_severity(text):
+    for level, keywords in SEVERITY_KEYWORDS.items():
         for keyword in keywords:
             if keyword in text:
                 return level
-    return "LOW"
+    return "Low"
 
 
 # =============================
-# 4. LOCATION EXTRACTION
+# LOCATION EXTRACTION
 # =============================
 def extract_location(text):
-    # Try spaCy NER
     doc = nlp(text)
     for ent in doc.ents:
         if ent.label_ in ["GPE", "LOC", "FAC"]:
-            return ent.text
+            return ent.text.title()
 
-    # Fallback rule
     words = text.split()
-    for i, word in enumerate(words):
-        if word in ["in", "near", "at"] and i + 1 < len(words):
-            return words[i + 1]
+    for i, w in enumerate(words):
+        if w in ["in", "near", "at"] and i + 1 < len(words):
+            return words[i + 1].title()
 
     return "Not Found"
 
 
 # =============================
-# MAIN (RAW SITUATIONS + F1)
+# MAIN FUNCTION
+# =============================
+def extract_entities(transcript):
+    cleaned = clean_text(transcript)
+    return {
+        "EmergencyType": classify_emergency(cleaned),
+        "Location": extract_location(cleaned),
+        "Severity": detect_severity(cleaned)
+    }
+
+
+# =============================
+#  DEMO OUTPUT 
+# =============================
+# =============================
+# DEMO + F1 SCORE EVALUATION
 # =============================
 if __name__ == "__main__":
 
-    # You can add ANY extra values, it will NOT crash
-    
-    raw_situations = [
-    ("burning accident in chittoor please help immediately", "Fire"),
-    ("a person is injured at Tirupathi", "Medical"),
-    ("vehicle overturned near rayachoty", "Accident")
-   
-   
-]
-
-
+    # Test cases: (text, correct_emergency_type)
+    test_cases = [
+        ("Smoke is coming from a factory near Rayachoty people are panicking", "Fire"),
+        ("Fire broke out in a building near Chittoor please help immediately", "Fire"),
+        ("There was a road accident and a vehicle overturned near Kadapa", "Accident"),
+        ("A man is unconscious and not breathing please send ambulance", "Medical"),
+        ("Minor injury reported near a shop", "Medical")
+    ]
 
     y_true = []
     y_pred = []
 
-    for item in raw_situations:
-        raw_text = item[0]          # always first
-        correct_label = item[1]     # always second
+    print("\n===== NLP OUTPUT =====")
 
-        cleaned_text = clean_text(raw_text)
-        predicted_label = classify_emergency(cleaned_text)
-        urgency = detect_urgency(cleaned_text)
-        location = extract_location(cleaned_text)
+    for text, actual in test_cases:
+        result = extract_entities(text)
 
-        print("\nRaw Text       :", raw_text)
-        print("Predicted Type :", predicted_label)
-        print("Correct Type   :", correct_label)
-        print("Urgency Level  :", urgency)
-        print("Location       :", location)
+        print("\nInput Text     :", text)
+        print("Emergency Type :", result["EmergencyType"])
+        print("Location       :", result["Location"])
+        print("Severity       :", result["Severity"])
 
-        y_true.append(correct_label)
-        y_pred.append(predicted_label)
+        y_true.append(actual)
+        y_pred.append(result["EmergencyType"])
 
+    # Calculate F1-score
     f1 = f1_score(y_true, y_pred, average="macro")
-    print("\nFinal F1 Score :", round(f1 * 100, 2), "%")
+
+    print("\n===== MODEL EVALUATION =====")
+    print("F1 Score :", round(f1 * 100, 2), "%")
+
