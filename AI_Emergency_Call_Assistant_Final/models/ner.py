@@ -1,153 +1,210 @@
 import re
 import spacy
-from sklearn.metrics import f1_score
-
+import speech_recognition as sr
 
 # =============================
-# LOAD spaCy MODEL
+# LOAD NLP MODEL
 # =============================
 nlp = spacy.load("en_core_web_sm")
 
 # =============================
-# TEXT CLEANING
+# TEXT PREPROCESSING
 # =============================
-FILLER_WORDS = [
+STOPWORDS = {
     "um", "uh", "please", "sir", "actually",
     "hello", "hey", "kindly", "ok", "okay"
-]
-
-def clean_text(text):
-    text = text.lower()
-    for word in FILLER_WORDS:
-     text = re.sub(rf"\b{word}\b", "", text)
-    text = re.sub(r"[^a-z\s]", "", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
-# =============================
-# EMERGENCY CLASSIFICATION
-# =============================
-EMERGENCY_KEYWORDS = {
-    "Fire": [
-        "fire", "smoke", "burning", "flames",
-        "gas leak", "explosion", "blast",
-        "short circuit", "caught fire"
-    ],
-    "Medical": [
-        "injured", "unconscious", "bleeding",
-        "heart attack", "not breathing",
-        "collapsed", "ambulance"
-    ],
-    "Accident": [
-        "accident", "crash", "collision",
-        "hit", "overturned", "vehicle"
-    ],
-    "Crime": [
-        "robbery", "attack", "assault",
-        "fight", "threat"
-    ]
 }
 
-def classify_emergency(text):
-    for emergency, keywords in EMERGENCY_KEYWORDS.items():
-        for keyword in keywords:
-            if keyword in text:
-                return emergency
+def preprocess_text(text: str) -> str:
+    text = text.lower()
+    for w in STOPWORDS:
+        text = re.sub(rf"\b{w}\b", "", text)
+    text = re.sub(r"[^a-z\s]", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+# =============================
+# EMERGENCY TYPE EXTRACTION
+# =============================
+def extract_emergency_type(text: str) -> str:
+    text = text.lower()
+
+    # 1️⃣ Fire (highest priority)
+    fire_keywords = [
+        "fire", "smoke", "burning", "gas leak", "explosion"
+    ]
+    if any(word in text for word in fire_keywords):
+        return "Fire"
+
+    # 2️⃣ Accident
+    accident_keywords = [
+        "accident", "crash", "collision", "vehicle", "road accident"
+    ]
+    if any(word in text for word in accident_keywords):
+        return "Accident"
+
+    # 3️⃣ Crime
+    crime_keywords = [
+        "attack", "robbery", "assault", "fight", "threat"
+    ]
+    if any(word in text for word in crime_keywords):
+        return "Crime"
+
+    # 4️⃣ Medical (lowest priority)
+    medical_keywords = [
+        "injured", "bleeding", "unconscious", "pain", "heart attack"
+    ]
+    if any(word in text for word in medical_keywords):
+        return "Medical"
+
     return "Unknown"
 
 
+
 # =============================
-# SEVERITY DETECTION
+# URGENCY EXTRACTION
 # =============================
-SEVERITY_KEYWORDS = {
-    "High": [
-        "unconscious", "not breathing",
-        "dying", "serious", "emergency",
-        "panic", "immediately"
-    ],
-    "Medium": [
-        "injured", "help", "pain",
-        "fear", "gas leak"
-    ],
-    "Low": [
-        "minor", "small"
+def extract_urgency(text: str) -> str:
+    text = text.lower()
+
+    # 1️⃣ Explicit LOW urgency indicators (highest priority)
+    low_indicators = [
+        "minor",
+        "not serious",
+        "no one is injured",
+        "no one injured",
+        "no serious injury"
     ]
-}
 
-def detect_severity(text):
-    for level, keywords in SEVERITY_KEYWORDS.items():
-        for keyword in keywords:
-            if keyword in text:
-                return level
-    return "Low"
+    for phrase in low_indicators:
+        if phrase in text:
+            return "LOW"
+
+    # 2️⃣ CRITICAL indicators
+    critical_words = [
+        "dying",
+        "unconscious",
+        "not breathing",
+        "severe bleeding"
+    ]
+
+    for word in critical_words:
+        if word in text:
+            return "CRITICAL"
+
+    # 3️⃣ HIGH urgency indicators
+    high_words = [
+        "serious",
+        "bleeding",
+        "emergency",
+        "immediately",
+        "ambulance"
+    ]
+
+    for word in high_words:
+        if word in text:
+            return "HIGH"
+
+    # 4️⃣ Default
+    return "MEDIUM"
+
 
 
 # =============================
-# LOCATION EXTRACTION
+# LOCATION EXTRACTION (NER)
 # =============================
-def extract_location(text):
+def extract_location(text: str) -> str:
     doc = nlp(text)
-    for ent in doc.ents:
-        if ent.label_ in ["GPE", "LOC", "FAC"]:
-            return ent.text.title()
 
-    words = text.split()
-    for i, w in enumerate(words):
-        if w in ["in", "near", "at"] and i + 1 < len(words):
-            return words[i + 1].title()
+    # 1️⃣ Named Entity Recognition (preferred)
+    for ent in doc.ents:
+        if ent.label_ in {"GPE", "LOC", "FAC"}:
+            return ent.text
+
+    # 2️⃣ Rule-based fallback for common places
+    fallback_places = [
+        "bus stand", "bus stop", "railway station",
+        "hospital", "college", "school", "market",
+        "road", "highway"
+    ]
+
+    text_lower = text.lower()
+    for place in fallback_places:
+        if place in text_lower:
+            return place
 
     return "Not Found"
 
 
 # =============================
-# MAIN FUNCTION
+# CORE FACT EXTRACTION (YOUR ROLE)
 # =============================
-def extract_entities(transcript):
-    cleaned = clean_text(transcript)
+def extract_emergency_facts(transcribed_text: str) -> dict:
+    clean = preprocess_text(transcribed_text)
+
     return {
-        "EmergencyType": classify_emergency(cleaned),
-        "Location": extract_location(cleaned),
-        "Severity": detect_severity(cleaned)
+        "emergency_type": extract_emergency_type(clean),
+        "urgency_level": extract_urgency(clean),
+        "location": extract_location(transcribed_text)
     }
 
 
 # =============================
-#  DEMO OUTPUT 
+# AUDIO → TEXT (NO WHISPER)
+# =============================
+def transcribe_audio(audio_path: str) -> str:
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(audio_path) as source:
+        audio = recognizer.record(source)
+    return recognizer.recognize_google(audio)
+
+
+# =============================
+# MAIN (REVIEW DEMO)
 # =============================
 # =============================
-# DEMO + F1 SCORE EVALUATION
+# MAIN (REVIEW DEMO)
 # =============================
+import os
+
 if __name__ == "__main__":
 
-    # Test cases: (text, correct_emergency_type)
-    test_cases = [
-        ("Smoke is coming from a factory near Rayachoty people are panicking", "Fire"),
-        ("Fire broke out in a building near Chittoor please help immediately", "Fire"),
-        ("There was a road accident and a vehicle overturned near Kadapa", "Accident"),
-        ("A man is unconscious and not breathing please send ambulance", "Medical"),
-        ("Minor injury reported near a shop", "Medical")
+    base_dir = os.path.dirname(__file__)
+    audio_dir = os.path.join(base_dir, "demo_audios")
+
+    if not os.path.exists(audio_dir):
+        print("Audio folder not found!")
+        exit()
+
+    audio_files = [
+        f for f in os.listdir(audio_dir)
+        if f.lower().endswith(".wav")
     ]
 
-    y_true = []
-    y_pred = []
+    if not audio_files:
+        print("No audio files found in demo_audios folder!")
+        exit()
 
-    print("\n===== NLP OUTPUT =====")
+    print(f"Found {len(audio_files)} audio files\n")
 
-    for text, actual in test_cases:
-        result = extract_entities(text)
+    for audio_file in audio_files:
+        audio_path = os.path.join(audio_dir, audio_file)
 
-        print("\nInput Text     :", text)
-        print("Emergency Type :", result["EmergencyType"])
-        print("Location       :", result["Location"])
-        print("Severity       :", result["Severity"])
+        print("=" * 50)
+        print("Processing:", audio_file)
 
-        y_true.append(actual)
-        y_pred.append(result["EmergencyType"])
+        try:
+            # Step 1: Audio → Text
+            text = transcribe_audio(audio_path)
+            print("\nTranscribed Text:")
+            print(text)
 
-    # Calculate F1-score
-    f1 = f1_score(y_true, y_pred, average="macro")
+            # Step 2: Text → Emergency Facts
+            facts = extract_emergency_facts(text)
+            print("\nExtracted Emergency Facts:")
+            print(facts)
 
-    print("\n===== MODEL EVALUATION =====")
-    print("F1 Score :", round(f1 * 100, 2), "%")
+        except Exception as e:
+            print("Error processing file:", audio_file)
+            print("Reason:", e)
 
